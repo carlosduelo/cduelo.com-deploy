@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+function _usage {
+cat <<EOF
+Usage: $0 [dropbox-token]
+
+-h|--help           display this help and exit.
+dropbox-token       dropbox token
+EOF
+}
+function config_goaccess {
+  rm -rf ./docker/goaccess
+  git clone https://github.com/allinurl/goaccess.git ./docker/goaccess
+}
+
+function create_web {
+  local -r token=$1
+
+  # Apply env
+  export WEB_HOST="cduelo.com"
+  envsubst < ./data/nginx/cduelo.com.conf.template > ./data/nginx/cduelo.com.conf
+
+  # Prepare env
+  rm -rf ./data/cduelo.com
+  rm -rf ./data/images
+  mkdir -p ./data/images
+
+  git clone https://github.com/carlosduelo/cduelo.com.git ./data/cduelo.com
+  ./utils/python/generate-albums ./data/cduelo.com/content/gallery/ ./data/images/ "$token"
+
+  pushd ./data/cduelo.com
+  hugo
+  popd
+}
+
+function deploy {
+  pushd docker
+  docker-compose stop
+  docker-compose up -d
+  popd
+}
+
+function _run {
+  case "${1:-"-h"}" in
+  -h|--help)
+      _usage
+      ;;
+  *)
+      create_web "$1"
+      config_goaccess
+      deploy
+      ;;
+  esac
+}
+
+_run "$@"

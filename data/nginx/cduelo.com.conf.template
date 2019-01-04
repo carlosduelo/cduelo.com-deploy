@@ -1,0 +1,45 @@
+proxy_cache_path /var/www/imgcache levels=1 keys_zone=resized:1m max_size=512m inactive=365d;
+
+server {
+    listen       80 default_server;
+    server_name  ${WEB_HOST};
+
+    location / {
+        root       /var/www/cduelo.com/;
+        index      index.html;
+        error_page 404 /404.html;
+    }
+
+    location ~ ^/img([0-9]+)(?:/(.*))?$ {
+        proxy_pass        http://127.0.0.1:9001;
+        proxy_cache       resized;
+        proxy_cache_valid 365d;
+    }
+}
+
+limit_req_zone "1" zone=2persec:32k rate=2r/s;
+
+server {
+    listen 9001;
+    allow 127.0.0.1;
+    deny all;
+    limit_req zone=2persec burst=10;
+
+    location ~ ^/img([0-9]+)(?:/(.*))?$ {
+        alias /var/www/master_images/$2;
+        image_filter_buffer 100M;
+        image_filter resize $1 -;
+    }
+}
+
+
+server {
+    listen       80;
+    server_name  goaccess.${WEB_HOST};
+
+    location / {
+        root       /var/www/goaccess/cduelo.com/;
+        index      index.html;
+        error_page 404 404.html;
+    }
+}

@@ -1,0 +1,124 @@
+#!/usr/bin/env python
+
+import argparse
+import dropbox
+import toml
+import pathlib
+import re
+import os
+import sys
+
+
+class Album(object):
+    allowed_pictures_re = re.compile(r'.*\.(jpg|svg|png)$')
+
+    def __init__(self, name, ftoml, pictures):
+        self.name = name
+        self.ftoml = ftoml
+        self.pictures = pictures
+
+    def write_lang_markadown(self, lang, output):
+        md = dict(title=self.ftoml[lang]['title'],
+                  description=self.ftoml[lang]['description'],
+                  date=self.ftoml[lang]['date'],
+                  tags=self.ftoml[lang]['tags'],
+                  coverpicture=None,
+                  pictures=[])
+
+        if self.ftoml[lang]['coverpicture']:
+            md['coverpicture'] = os.fspath(pathlib.Path(
+                self.name, self.ftoml[lang]['coverpicture']))
+        else:
+            md['coverpicture'] = os.fspath(pathlib.Path(self.name,
+                                                        self.pictures[0]))
+        for picture in self.pictures:
+            md['pictures'] += [dict(title=picture[0],
+                                   SRC=os.fspath(pathlib.Path(self.name,
+                                                              picture[0])))]
+
+        with open(pathlib.Path(output, '%s.%s.md' % (self.name, lang)), 'w') as f:
+            f.write('+++' + os.linesep)
+            toml.dump(md, f)
+            f.write('+++')
+
+    def write_markdowns(self, output):
+        for lang in self.ftoml.keys():
+            self.write_lang_markadown(lang, output)
+
+    def download_pictures(self, dr, output):
+        pathlib.Path(output, self.name).mkdir(parents=True, exist_ok=True)
+        for name, path in self.pictures:
+            dr.download_file(path, pathlib.Path(output, self.name, name))
+
+
+class DropReader(object):
+    def __init__(self, token):
+        self.dbx = dropbox.Dropbox(token)
+        # Check that the access token is valid
+        try:
+            self.dbx.users_get_current_account()
+        except dropbox.exceptions.AuthError:
+            sys.exit(
+                "ERROR: Invalid access token; try re-generating an "
+                "access token from the app console on the web."
+            )
+
+    def generate_albums(self, path):
+        for elem in self.list_folder(path):
+            if isinstance(elem, dropbox.files.FolderMetadata):
+                yield self.generate_album(elem)
+
+    def generate_album(self, folder):
+        def _get_pictures(files):
+            for f in self.list_folder(files.path_lower):
+                if Album.allowed_pictures_re.match(f.name):
+                    yield (f.name, f.path_lower)
+        ftoml = toml.loads(
+            self.get_file(pathlib.Path(folder.path_lower, 'info.toml')).decode('utf-8'))
+        name = folder.name.replace(' ', '').lower()
+        print(name)
+        return Album(name, ftoml, list(_get_pictures(folder)))
+
+    def list_folder(self, path):
+        def _list(dbx, listFolderResult):
+            for elem in listFolderResult.entries:
+                yield elem
+            if listFolderResult.has_more:
+                yield from _list(
+                    dbx, dbx.files_list_folder_continue(
+                        listFolderResult.cursor))
+        return _list(self.dbx, self.dbx.files_list_folder(path))
+
+    def get_file(self, path):
+        try:
+            md, res = self.dbx.files_download(os.fspath(path))
+        except dropbox.exceptions.HttpError as err:
+            raise Exception('*** HTTP error ', err)
+        return res.content
+
+    def download_file(self, path, output_path):
+        with open(output_path, 'wb') as f:
+            f.write(self.get_file(path))
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Get albums from dropbox')
+    parser.add_argument(
+        'md_output', help='Directory of the albums')
+    parser.add_argument(
+        'picture_output', help='Directory of the pictures')
+    parser.add_argument(
+        'token', help='Access token (see https://www.dropbox.com/developers/apps)')
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    dr = DropReader(args.token)
+    for album in dr.generate_albums(""):
+        album.write_markdowns(args.md_output)
+        album.download_pictures(dr, args.picture_output)
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,29 @@
+version: '3'
+services:
+  webapp:
+    image: nginx
+    read_only: true
+    volumes:
+      - ../data/cduelo.com/public:/var/www/cduelo.com
+      - ./web/goaccess/html:/var/www/goaccess/cduelo.com
+      - ../data/images:/var/www/master_images
+      - ../data/nginx/cduelo.com.conf:/etc/nginx/conf.d/default.conf
+      - ../data/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./web/nginx-cache:/var/cache/nginx
+      - ./web/nginx-pid:/var/run
+      - ./web/nginx-log:/var/log/nginx/
+      - ./web/img-cache:/var/www/imgcache
+    ports:
+      - "80:80"
+    command: [nginx-debug, '-g', 'daemon off;']
+  goaccess:
+    image: allinurl/goaccess
+    read_only: true
+    volumes:
+      - ../data/goaccess/:/srv/data
+      - ./web/goaccess/html:/srv/report
+      - ./web/goaccess/pid:/var/run
+      - ./web/goaccess/fifo:/tmp/fifo
+      - ./web/nginx-log:/srv/logs
+    ports:
+      - "7890:7890"
